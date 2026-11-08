@@ -648,13 +648,15 @@ async function searchCity(q){const box=$("#city-res");if(!q||!box)return;box.inn
 // 家里有什么：拍照录的「调料」「食品」＋ 厨房和冰箱里的存货（数量不为 0）＋ 厨房和冰箱清单里写的每一样
 function pantry(){
   const out=[],kitchen=l=>!!l&&(["kitchen","fridge"].includes(l.spot)||/厨房|冰箱|食/.test(l.name||""));
-  activeItems().forEach(i=>out.push({id:i.id,name:[i.brand,i.note,i.shade].filter(Boolean).join(" ")||i.cat,src:"录的",days:daysLeft(i)}));
+  activeItems().forEach(i=>out.push({id:i.id,cat:i.cat,name:[i.brand,i.note,i.shade].filter(Boolean).join(" ")||i.cat,src:"录的",days:daysLeft(i)}));
   S.stock.filter(x=>kitchen(locById(x.loc))&&((+x.qty||0)>0||(+x.subQty||0)>0)).forEach(x=>out.push({name:x.name,src:"存货",days:null}));
   S.locs.filter(kitchen).forEach(l=>(l.contents||"").split(/[\n、，,;；]+/).map(x=>x.trim()).filter(Boolean).forEach(x=>out.push({name:x,src:"清单",days:null})));
   return out}
 const FOOD_RE={};
 function foodRe(key){return FOOD_RE[key]||(FOOD_RE[key]=new RegExp(key.split("|").map(k=>(window.FOOD_WORDS||{})[k]||k).join("|"),"i"))}
-function findIn(pan,key){const re=foodRe(key);return pan.filter(x=>re.test(x.name))}
+// 名字对上还不够：拍照录的东西类别也要对得上（recipes.js 的 FOOD_CATS），「其他…」类和清单里写的只看名字
+function findIn(pan,key){const FC=window.FOOD_CATS||{};
+  return pan.filter(x=>key.split("|").some(k=>foodRe(k).test(x.name)&&(!x.cat||/^其他/.test(x.cat)||!FC[k]||FC[k].includes(x.cat))))}
 const keyName=k=>k.split("|").join("或");
 function scoreRecipes(pan,wx){
   const cold=wx&&(wx.amax<15||wx.rain>=50),hot=wx&&wx.amax>=25;
