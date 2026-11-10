@@ -191,7 +191,8 @@ button.ucard.urow{flex-direction:row;padding:10px;border:1px solid var(--line);b
 .useg button{padding:9px 6px;font-size:14px}
 .find-entry{display:flex;align-items:center;gap:10px;min-height:48px;padding:0 16px;border-radius:24px;background:var(--surface);border:1px solid var(--line);color:var(--muted);font:inherit;font-size:15px;width:100%;text-align:left}
 .find-sum{display:flex;flex-direction:column;gap:6px}.find-sum .big{font-size:36px;font-weight:800;line-height:1.1}
-.recipe{gap:6px}.recipe .tags{display:flex;flex-wrap:wrap;gap:6px}
+.recipe{gap:6px}
+.tag.cu-川{background:color-mix(in srgb,#c0392b 16%,var(--surface));color:var(--fg)}.tag.cu-沪{background:color-mix(in srgb,#2f6db5 16%,var(--surface));color:var(--fg)}.recipe .tags{display:flex;flex-wrap:wrap;gap:6px}
 .tag{font-size:12px;padding:1px 8px;border-radius:999px;background:var(--surface-2);color:var(--muted)}.tag.soon{background:color-mix(in srgb,var(--warn) 22%,var(--surface));color:var(--fg)}
 .recipe .ok{color:var(--ok)}.miss{color:var(--tag)}
 .sim{display:flex;align-items:center;gap:10px;margin-top:8px}
@@ -744,7 +745,9 @@ function scoreRecipes(pan,wx){
     const miss=need.filter(x=>!x.hit.length),seaMiss=sea.filter(x=>!x.hit.length);
     const used=[...need,...opt].flatMap(x=>x.hit);
     const soon=used.filter(x=>x.days!=null&&x.days<=5&&x.days>=-2);
-    let sc=(need.length-miss.length)/need.length*6+(sea.length?(sea.length-seaMiss.length)/sea.length:1)*1.5+opt.filter(x=>x.hit.length).length*.4;
+    // 调料分量加重：家里有的调料用得越多越往前（花椒、豆瓣、老抽、冰糖…都派上用场）；中国菜（川、沪、其他中餐）再加一点
+    const seaHit=sea.length-seaMiss.length;
+    let sc=(need.length-miss.length)/need.length*6+(sea.length?seaHit/sea.length:1)*3+seaHit*.35+opt.filter(x=>x.hit.length).length*.4+(["川","沪","中"].includes(r.cu||"中")?1:0);
     let why="";
     if(r.w==="热"&&cold){sc+=1.5;why=wx.rain>=50?"下雨天，来点热乎的":"天冷，来点热乎的"}
     if(r.w==="凉"&&hot){sc+=1.5;why="天热，吃点清爽的"}
@@ -753,11 +756,14 @@ function scoreRecipes(pan,wx){
     const recent=MEALS&&(S.meals||[]).some(m=>(m.name||"").trim()===r.n&&m.date>=ymd(Date.now()-3*DAY));
     if(recent)sc-=3;
     return {r,need,sea,opt,miss,seaMiss,soon,sc,why,recent}}).sort((a,b)=>b.sc-a.sc)}
-function recipeCard(x){const r=x.r,have=[...x.need,...x.sea,...x.opt].filter(y=>y.hit.length).map(y=>keyName(y.k));
+const CUISINE={川:"川菜",沪:"上海菜",中:"中国菜",日:"日式",西:"西式"};
+function recipeCard(x){const r=x.r,haveF=[...x.need,...x.opt].filter(y=>y.hit.length).map(y=>keyName(y.k)),haveS=x.sea.filter(y=>y.hit.length).map(y=>keyName(y.k)),lv=r.lv||1;
   return `<div class="panel recipe"><div class="row between"><b>${esc(r.n)}</b><span class="sub">约 ${r.t} 分钟</span></div>
+   <div class="tags"><span class="tag cu cu-${esc(r.cu||"中")}">${esc(CUISINE[r.cu||"中"]||"")}</span><span class="tag" aria-label="难度 ${lv}">难度 ${"●".repeat(lv)}${"○".repeat(3-lv)}</span></div>
    ${x.why||x.soon.length||x.recent?`<div class="tags">${x.soon.length?`<span class="tag soon">先用掉：${esc([...new Set(x.soon.map(s=>s.name))].join("、"))}</span>`:""}${x.why?`<span class="tag">${esc(x.why)}</span>`:""}${x.recent?`<span class="tag">这几天做过</span>`:""}</div>`:""}
    <div class="sub">${esc(r.how)}</div>
-   ${have.length?`<div class="sub">家里有：<span class="ok">${esc(have.join("、"))}</span></div>`:""}
+   ${haveF.length?`<div class="sub">家里有的食材：<span class="ok">${esc(haveF.join("、"))}</span></div>`:""}
+   ${haveS.length?`<div class="sub">用到家里的调料：<span class="ok">${esc(haveS.join("、"))}</span></div>`:""}
    ${x.miss.length||x.seaMiss.length?`<div class="sub">还缺：<span class="miss">${esc([...x.miss,...x.seaMiss].map(y=>keyName(y.k)).join("、"))}</span></div>`:""}
    ${x.opt.some(y=>!y.hit.length)?`<div class="sub">有的话还能加：${esc(x.opt.filter(y=>!y.hit.length).map(y=>keyName(y.k)).join("、"))}</div>`:""}
    ${MEALS&&!S.ro?`<div class="row"><button class="btn sm" type="button" data-act="cook" data-n="${esc(r.n)}">就做这个，记一顿</button></div>`:""}</div>`}
@@ -769,7 +775,9 @@ function foodHTML(){
       <div class="row" style="flex-wrap:nowrap"><input type="text" id="city-q" placeholder="或者搜城市：东京 / 上海 / Osaka" style="flex:1;min-width:0"><button class="btn" type="button" data-act="city-go">搜</button></div><div class="stack" id="city-res" style="gap:6px"></div></section>`;
   else if(!wx)h+=`<section class="panel"><div class="sub">${S.wxErr?esc(S.wxErr)+` <button class="btn sm" type="button" data-act="wx-retry">再试一次</button>`:"正在查今天的天气…"}</div></section>`;
   else h+=`<section class="panel"><div class="row between"><span><b>${wx.now}° ${WMO(wx.code)}</b><span class="sub"> · 最高 ${wx.tmax}° 最低 ${wx.tmin}° · 下雨 ${wx.rain}%</span></span><button class="btn sm" type="button" data-act="wx-change">${esc(pl.name)} ▾</button></div></section>`;
-  const all=scoreRecipes(pan,wx),can=all.filter(x=>!x.miss.length),near=all.filter(x=>x.miss.length===1&&x.need.length>1);
+  const FC=[["","全部"],["川","川菜"],["沪","上海菜"],["3","费工夫的"],["1","快手的"]],fc=S.foodCu||"";
+  const all=scoreRecipes(pan,wx).filter(x=>!fc||(fc==="3"?(x.r.lv||1)>=3:fc==="1"?(x.r.lv||1)<=1:x.r.cu===fc)),can=all.filter(x=>!x.miss.length),near=all.filter(x=>x.miss.length===1&&x.need.length>1);
+  h+=`<div class="chips hscroll">${FC.map(([v,n])=>`<button class="chip" type="button" data-act="food-cu" data-v="${v}" aria-pressed="${fc===v}">${n}</button>`).join("")}</div>`;
   const pg=S.foodPage||0,pick=(arr,n)=>arr.length<=n?arr:arr.slice(pg*n%arr.length).concat(arr).slice(0,n);
   if(!pan.length)h+=`<div class="notice">还不知道家里有什么吃的。拍照录入时选「调料」「食品」，或者在地图里给冰箱、厨房写一段清单（比如：鸡蛋、豆腐、白菜），这里就能按你家里有的推荐。下面先按天气推荐。</div>`;
   h+=`<section><div class="row between"><h2>${pan.length?"家里的东西就能做":"今天适合吃"}</h2>${(pan.length?can:all).length>5?`<button class="btn sm" type="button" data-act="food-more">换一批</button>`:""}</div>
@@ -1119,6 +1127,7 @@ document.addEventListener("click",async e=>{
       :st>0?{stockN:st-1,openN:o+1,state:"open",qty:Math.max(1,st-1),...(o?{}:{left:meterOf(i).max,opened:Date.now()})}:null;
     if(!up)return;try{await ref("items",i.id).update(up);if(up.openN)toast(`开封了一个，存货还剩 ${st-1}`)}catch(_){t.disabled=false;toast("没保存成功")}}
   else if(a==="food-more"){S.foodPage=(S.foodPage||0)+1;renderKeep()}
+  else if(a==="food-cu"){S.foodCu=t.dataset.v;S.foodPage=0;renderKeep()}
   else if(a==="cook"){const x=scoreRecipes(pantry(),S.wx).find(y=>y.r.n===t.dataset.n);
     const ids=x?[...new Set([...x.need,...x.sea,...x.opt].flatMap(y=>y.hit).map(h=>h.id).filter(Boolean))]:[];
     S.mealDraft=null;openMeal(null,{name:t.dataset.n,used:ids})}
