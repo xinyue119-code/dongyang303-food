@@ -917,12 +917,12 @@ function renderForm(keep){
    <div class="f">类别 *${K.cats.map(g=>`<span>${esc(g.g)}</span><div class="cats" data-fm="cat">${g.items.map(([c])=>`<button class="chip cat" type="button" data-v="${esc(c)}" aria-pressed="${d.cat===c}">${catIcon(c)}${esc(c)}</button>`).join("")}</div>`).join("")}</div>
    ${UNI?uniQtyHTML(d):`<div class="f">现在是<div class="seg" data-fm="state">${Object.entries(STATES).map(([k,n])=>`<button type="button" data-v="${k}" aria-pressed="${d.state===k}">${n}${k==="new"?"（囤货）":""}</button>`).join("")}</div></div>
    ${open?"":`<label class="f">一样的有几${K.unit}<input type="number" id="fm-qty" value="${esc(d.qty||1)}" min="1" inputmode="numeric"></label>`}`}
-   ${K.expiry?`${open&&!UNI?`<label class="f">哪天开封的<input type="date" id="fm-opened" value="${ymd(d.opened||Date.now())}"></label>`:""}
+   ${K.expiry?`${open&&!UNI&&!K.noOpened?`<label class="f">哪天开封的<input type="date" id="fm-opened" value="${ymd(d.opened||Date.now())}"></label>`:""}
     ${K.paoOpts.length?`<div class="f">开封后能用多久（瓶身上那个小罐子图标）<div class="chips" data-fm="pao">${K.paoOpts.map(m=>chip(m,m+" 个月",+d.pao===m)).join("")}${chip(0,"不算",!+d.pao)}</div></div>`:""}
     <label class="f">${esc(K.expLabel||"包装上印的期限")}（可不填）<input type="date" id="fm-exp" value="${esc(d.exp||"")}"></label>`:""}
    ${K.brand?`<div class="f">品牌（可不填，点下面的直接填入）<input type="text" id="fm-brand" placeholder="${esc(K.brandPh||"")}" value="${esc(d.brand||"")}" autocomplete="off">${brandChips(d.brand)}</div>`:""}
    <label class="f">名称（可不填）<input type="text" id="fm-note" placeholder="${esc(K.notePh)}" value="${esc(d.note||"")}"></label>
-   <label class="f">${esc(K.shadeLabel)}（可不填）<input type="text" id="fm-shade" placeholder="${esc(K.shadePh)}" value="${esc(d.shade||"")}"></label>
+   ${K.shadeLabel?`<label class="f">${esc(K.shadeLabel)}（可不填）<input type="text" id="fm-shade" placeholder="${esc(K.shadePh)}" value="${esc(d.shade||"")}"></label>`:""}
    ${K.colors?`<div class="f">颜色（可不填）<div class="chips" data-fm="colors">${K.colors.map(c=>chip(c,c,d.colors.includes(c))).join("")}</div></div>`:""}
    ${LOC?`<label class="f">放在哪里<select id="fm-loc"><option value="">待整理（之后再放）</option>${pickLocs(d.loc).map(l=>`<option value="${esc(l.id)}" ${d.loc===l.id?"selected":""}>${esc(locLabel(l))}</option>`).join("")}</select></label>`:""}`}
    <div class="row">${edit?`<button class="btn primary" type="button" data-act="save">保存</button>`:`<button class="btn primary" type="button" data-act="save-next">保存，下一${K.unit}</button><button class="btn" type="button" data-act="save">保存</button>`}</div>
@@ -1028,7 +1028,7 @@ function openItem(id){
    ${i.thumb?`<img class="big-photo" id="bigph" src="${i.thumb}" alt="">`:""}
    <dl class="kv"><dt>类别</dt><dd>${catIcon(i.cat)} ${esc(i.cat)}</dd>
    ${i.brand?`<dt>品牌</dt><dd>${esc(i.brand)}</dd>`:""}
-   ${i.shade?`<dt>${esc(K.shadeLabel)}</dt><dd>${esc(i.shade)}</dd>`:""}
+   ${i.shade?`<dt>${esc(K.shadeLabel||"规格")}</dt><dd>${esc(i.shade)}</dd>`:""}
    ${(i.colors||[]).length?`<dt>颜色</dt><dd>${esc(i.colors.join("、"))}</dd>`:""}
    <dt>${UNI?"数量":"状态"}</dt><dd>${gone?"用完于 "+esc(dateText(i.goneAt||0)):UNI?esc(countText(i))+(openN(i)?` · 剩余 ${meterOf(i).left}${meterOf(i).unit}`:""):open?"在用"+(i.opened?"，"+esc(dateText(i.opened))+" 开封":""):"没开封，囤着 "+qtyOf(i)+" "+K.unit}</dd>
    ${n!=null?`<dt>到期</dt><dd class="${n<0?"late":n<=30?"soon":""}">${esc(dateText(dueOf(i)))}（${dueText(n)}）</dd>`:""}
