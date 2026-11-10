@@ -9,7 +9,10 @@ window.KIND = {
   expLabel: "保质期",
   idleDays: 30,
   colors: null,
-  states: { open: "开了", new: "没开封" },
+  states: { open: "开封", new: "存货" },
+  // 2026-11-10 起：一样东西一张卡，同时记开封几个（openN）、存货几个（stockN），开封的有剩余量（left）。没有单独的囤货页。
+  unified: true,
+  meatCats: ["肉"],          // 肉类一律算开封，剩余量按克
   locSpots: ["kitchen", "fridge"],   // 放在哪里只列厨房和冰箱（位置在杂物间的地图里增改）
   kitchen: true,             // 「今天吃」：看天气和家里的东西推荐菜（菜谱在 recipes.js）
   meals: true,               // 「做的饭」：记每天做了什么，用掉的东西顺手减掉
@@ -30,8 +33,29 @@ window.KIND = {
   shadeLabel: "规格",
   shadePh: "比如：1L / 500g / 6 个",
   photoHint: "拍包装正面，能看到名字就行",
-  emptyHint: "还没有录入吃的。点右下角「＋ 录入」拍一张，选类别；没开封的囤货把状态选成「没开封」，填上数量。<br><br>冰箱里零零碎碎的东西不用一样样拍：在杂物间的地图里点开冰箱，写一段清单，「今天吃」也会算进去。",
+  emptyHint: "还没有录入吃的。点右下角「＋ 录入」拍一张，选类别，填开封几个、存货几个。<br><br>冰箱里零零碎碎的东西不用一样样拍：在杂物间的地图里点开冰箱，写一段清单，「今天吃」也会算进去。",
   migrate: async db => {
+    await moveFromZawu(db);
+    await unify(db);
+  }
+};
+
+// 2026-11-10：老记录补上开封数、存货数和剩余量。原来的 state / qty 原样留着，不删任何字段，也不合并重复的。
+// 在用 → 开封 1；没开封 → 存货 qty；肉类 → 都算开封，剩余量按克，总重量先按 1000g（以后在编辑里改）。
+async function unify(db) {
+  const flag = db.doc("meta/food-unify-20261110");
+  if ((await flag.get()).exists) return;
+  for (const d of (await db.collection("fd_items").get()).docs) {
+    const x = d.data(); if (x.openN != null || x.stockN != null) continue;
+    const opened = x.state !== "new", n = Math.max(1, +x.qty || 1), meat = x.cat === "肉";
+    const up = meat ? { openN: opened ? 1 : n, stockN: 0, weight: 1000, mUnit: "g", left: 1000 }
+                    : { openN: opened ? 1 : 0, stockN: opened ? 0 : n, left: 100 };
+    await d.ref.update(up);
+  }
+  await flag.set({ done: Date.now() });
+}
+
+async function moveFromZawu(db) {
     const flag = db.doc("meta/food-20261109");
     if ((await flag.get()).exists) return;
     // 名字里有这些字就归到这一类（先匹配到的算）
@@ -82,5 +106,4 @@ window.KIND = {
       await d.ref.update({ moved: "fd" });
     }
     await flag.set({ done: Date.now() });
-  }
-};
+}

@@ -172,6 +172,23 @@ label.f,.f{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(-
 .meal{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:10px;text-align:left;font:inherit;color:inherit;margin-bottom:6px}
 .meal img,.meal-ph{width:52px;height:52px;border-radius:8px;object-fit:cover;flex:none;background:var(--surface-2);display:grid;place-items:center;color:var(--muted)}.meal-ph svg{width:26px;height:26px}
 .meal .grow{flex:1;min-width:0}.meal .grow b,.meal .grow .sub{display:block;overflow-wrap:anywhere}
+.ucard{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.urow{display:flex;align-items:center;gap:12px;border:0;background:none;padding:0;text-align:left;font:inherit;color:inherit;width:100%}
+button.ucard.urow{flex-direction:row;padding:10px;border:1px solid var(--line);background:var(--surface)}
+.uph{width:56px;height:56px;border-radius:14px;overflow:hidden;flex:none;background:var(--surface-2);display:grid;place-items:center}.uph img{width:100%;height:100%;object-fit:cover}
+.urow .grow{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;align-items:flex-start}
+.urow .grow b{font-size:16px;line-height:22px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.urow .sub.late{color:var(--tag)}
+.lbl{display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:12px;line-height:18px;white-space:nowrap}
+.lbl.open{background:color-mix(in srgb,var(--accent) 20%,var(--surface));color:color-mix(in srgb,var(--accent) 60%,var(--fg))}
+.lbl.stock{background:var(--surface-2);color:var(--fg)}
+.umeter{padding:0 4px}.umeter .lv{font-size:16px;color:var(--fg)}
+.umeter input[type=range]{width:100%;height:44px;margin:0;accent-color:var(--accent);cursor:pointer}
+.umeter .tiny{font-size:12px;color:var(--muted);margin-top:-6px}
+.hscroll{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}.hscroll::-webkit-scrollbar{display:none}.hscroll .chip{flex:none}
+.useg button{padding:9px 6px;font-size:14px}
+.find-entry{display:flex;align-items:center;gap:10px;min-height:48px;padding:0 16px;border-radius:24px;background:var(--surface);border:1px solid var(--line);color:var(--muted);font:inherit;font-size:15px;width:100%;text-align:left}
+.find-sum{display:flex;flex-direction:column;gap:6px}.find-sum .big{font-size:36px;font-weight:800;line-height:1.1}
 .recipe{gap:6px}.recipe .tags{display:flex;flex-wrap:wrap;gap:6px}
 .tag{font-size:12px;padding:1px 8px;border-radius:999px;background:var(--surface-2);color:var(--muted)}.tag.soon{background:color-mix(in srgb,var(--warn) 22%,var(--surface));color:var(--fg)}
 .recipe .ok{color:var(--ok)}.miss{color:var(--tag)}
@@ -287,11 +304,29 @@ function dueOf(i){if(!K.expiry)return 0;const c=[];
 const daysLeft = i => {const d=dueOf(i);return d?Math.round((d-today0())/DAY):null};
 const dueText = n => n<0?`已过期 ${-n} 天`:n===0?"今天到期":`还剩 ${n} 天`;
 const expired = i => {const n=daysLeft(i);return n!=null&&n<0};
+// 厨房（kind.js unified:true）：一样东西一张卡，同时记「开封几个」openN 和「存货几个」stockN，开封的那部分有剩余量 left。
+// 还没迁移的老记录按 state/qty 推算：在用 = 开封 1，没开封 = 存货 qty。肉类（K.meatCats）一律算开封，没有存货。
+const UNI = !!K.unified;
+const isMeat = i => (K.meatCats||[]).includes(i.cat);
+function openN(i){const has=i.openN!=null||i.stockN!=null;
+  const o=has?Math.max(0,+i.openN||0):(isOpen(i)?1:0), st=has?Math.max(0,+i.stockN||0):(isOpen(i)?0:qtyOf(i));
+  return isMeat(i)?o+st:o}
+const stockN = i => isMeat(i)?0:(i.openN!=null||i.stockN!=null)?Math.max(0,+i.stockN||0):(isOpen(i)?0:qtyOf(i));
+// 剩余量：肉类按克（每档 50g，满 = 总重量 weight，没填按 1000g）；其他按百分比（每档 10%）。每样可以在编辑里单独改 mUnit / mMax / mStep
+function meterOf(i){const unit=i.mUnit||(isMeat(i)?"g":"%");
+  const max=+i.mMax||(unit==="g"?(+i.weight||1000):100), step=+i.mStep||(unit==="g"?50:10);
+  const left=i.left!=null&&i.left!==""?Math.min(max,Math.max(0,+i.left)):max;return {unit,max,step,left}}
+const countText = i => [openN(i)?"开封 "+openN(i):"",stockN(i)?"存货 "+stockN(i):""].filter(Boolean).join(" · ")||"没有了";
+// 用完一个：先算开封的，开封的没有了再算存货；都没有了才标成用完
+function finishPatch(i){let o=openN(i),st=stockN(i);const up={};
+  if(o>0){o--;if(o>0)up.left=meterOf(i).max}else if(st>0)st--;
+  Object.assign(up,{openN:o,stockN:st,state:o>0?"open":"new",qty:Math.max(1,st)});
+  if(o+st===0)Object.assign(up,{status:"gone",goneAt:Date.now()});return up}
 const notCount = i => Object.values(i.reviews||{}).filter(x=>x==="not").length;
 
 function cardHTML(i,opts={}){
   const n=daysLeft(i);
-  const badge=n!=null&&n<0&&i.status!=="gone"?`<span class="badge late">过期</span>`:!isOpen(i)?`<span class="badge">囤 ×${qtyOf(i)}</span>`:"";
+  const badge=n!=null&&n<0&&i.status!=="gone"?`<span class="badge late">过期</span>`:UNI?(stockN(i)?`<span class="badge">存货 ${stockN(i)}</span>`:""):!isOpen(i)?`<span class="badge">囤 ×${qtyOf(i)}</span>`:"";
   return `<button class="card${opts.sel?" sel":""}" type="button" data-item="${esc(i.id)}"${opts.selectable?' data-pick="1"':""}>
     <div class="ph">${i.thumb?`<img src="${i.thumb}" alt="" loading="lazy">`:(catIcon(i.cat,"xl")||"无照片")}</div>
     <div class="meta"><b>${esc(itemTitle(i))}</b><span>${esc(opts.sub ?? (LOC?locName(i.loc):i.shade||i.cat))}</span></div>
@@ -312,7 +347,7 @@ const KITCHEN = !!K.kitchen&&!!window.RECIPES;   // kind.js 里 kitchen:true 并
 const MEALS = !!K.meals;   // kind.js 里 meals:true 的 app 有「做的饭」（厨房）
 const TABS=(HOUSE?[["home","首页"],["map","地图"],["stock","存货"],...(KITCHEN?[["food","今天吃"]]:[]),["sort","整理"],["review","盘点"]]
   :[["home","首页"],...(KITCHEN?[["food","今天吃"]]:[]),...(MEALS?[["meals","做的饭"]]:[]),["stock","囤货"],["sort","整理"],["review","盘点"]])
-  .filter(t=>(LOC||t[0]!=="sort")&&!(K.noReview&&t[0]==="review"));
+  .filter(t=>(LOC||t[0]!=="sort")&&!(K.noReview&&t[0]==="review")&&!(K.unified&&t[0]==="stock"));
 // 「放在哪里」能选的位置：kind.js 里写了 locSpots 的只列那几个地方（厨房只列厨房和冰箱），cur 是这件现在的位置，总要留着
 const pickLocs = cur => K.locSpots?S.locs.filter(l=>K.locSpots.includes(l.spot)||l.id===cur):S.locs;
 const TAB_KEY="tab-"+K.id;
@@ -323,7 +358,7 @@ $("#tabs").addEventListener("click",e=>{const b=e.target.closest("[data-tab]");i
 function header(sub){return `<div class="row between"><div class="brand"><img class="logo" src="icon-192.png" alt=""><div><h1>${esc(K.name)}</h1><div class="sub">${sub}</div></div></div>${S.ro?'<span class="ro-pill">只读</span>':""}</div>`}
 function render(){
   renderTabs();
-  $("#fab").hidden = S.ro || !S.db || S.tab==="review";
+  $("#fab").hidden = S.ro || !S.db || S.tab==="review" || S.tab==="find";
   $("#fab").textContent = S.tab==="meals"?"＋ 记一顿":"＋ 录入";
   const app=$("#app");
   if(!S.authReady)return;
@@ -331,9 +366,11 @@ function render(){
   if(!S.user){$("#fab").hidden=true;app.innerHTML=loginHTML();return}
   if(!S.db)return;
   if(!(S.loaded.i&&S.loaded.l&&S.loaded.s))return;
-  if(S.tab==="home"&&document.activeElement&&document.activeElement.id==="gq"&&$("#home-body")){if(!S.composing)updateHomeBody();return}
+  if(S.tab==="home"&&!UNI&&document.activeElement&&document.activeElement.id==="gq"&&$("#home-body")){if(!S.composing)updateHomeBody();return}
+  if(S.tab==="find"&&document.activeElement&&document.activeElement.id==="fq"&&$("#find-body")){if(!S.composing)$("#find-body").innerHTML=findBody();return}
   const y=scrollY;
-  if(S.tab==="home")app.innerHTML=homeHTML();
+  if(S.tab==="home")app.innerHTML=UNI?uniHomeHTML():homeHTML();
+  else if(S.tab==="find"&&UNI)app.innerHTML=findHTML();
   else if(S.tab==="map")app.innerHTML=mapHTML();
   else if(S.tab==="stock")app.innerHTML=stockTabHTML();
   else if(S.tab==="sort")app.innerHTML=sortHTML();
@@ -398,6 +435,43 @@ function homeParts(){
   </section>`;
   return {top,body:h};
 }
+function uniCardHTML(i){
+  const o=openN(i),st=stockN(i),m=meterOf(i),n=daysLeft(i);
+  const sub=[LOC?locName(i.loc):"",n!=null&&n<=30?dueText(n):""].filter(Boolean).join(" · ");
+  return `<div class="ucard"><button class="urow" type="button" data-item="${esc(i.id)}"><span class="uph">${i.thumb?`<img src="${i.thumb}" alt="" loading="lazy">`:catIcon(i.cat,"xl")}</span>
+    <span class="grow"><b>${esc(itemTitle(i))}</b><span class="sub${n!=null&&n<0?" late":""}">${esc(sub)}</span>${st?`<span class="lbl stock">存货 ${st}</span>`:!o?`<span class="lbl stock">没有了</span>`:""}</span></button>
+   ${o?`<div class="umeter"><div class="row between"><span class="lbl open">开封 ${o}</span><span class="sub">剩余 <b class="lv" id="lv-${esc(i.id)}">${m.left}${m.unit}</b></span></div>
+    <input type="range" min="0" max="${m.max}" step="${m.step}" value="${m.left}" data-left="${esc(i.id)}" data-unit="${esc(m.unit)}" aria-label="${esc(itemTitle(i))} 剩余量" ${S.ro?"disabled":""}>
+    <div class="row between tiny"><span>0</span><span>${m.max}${m.unit}</span></div></div>`:""}</div>`}
+const SEARCH_SVG='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>';
+function uniHomeHTML(){
+  const items=activeItems();
+  let h=`<div class="stack">${header(`开封 ${items.filter(i=>openN(i)>0).length} 样 · 存货 ${items.filter(i=>stockN(i)>0).length} 样`)}${hopsHTML(K.id)}
+   <button class="find-entry" type="button" data-act="find">${SEARCH_SVG}<span>买之前，先查一下家里有没有</span></button>`;
+  if(!items.length)return h+`<div class="empty">${K.emptyHint}</div></div>`;
+  const usedCats=CATS.map(c=>c[0]).filter(c=>items.some(i=>i.cat===c));
+  const usedLocs=S.locs.filter(l=>items.some(i=>i.loc===l.id));
+  const inCat=items.filter(i=>(!S.fCat||i.cat===S.fCat)&&(!S.fLoc||(S.fLoc==="_none"?(!i.loc||!locById(i.loc)):i.loc===S.fLoc)));
+  const segs=[["","全部",inCat.length],["open","开封",inCat.filter(i=>openN(i)>0).length],["new","存货",inCat.filter(i=>stockN(i)>0).length]];
+  const list=inCat.filter(i=>!S.fState||(S.fState==="open"?openN(i)>0:stockN(i)>0)).sort((a,b)=>(b.created||0)-(a.created||0));
+  const pending=LOC?items.filter(i=>!i.loc||!locById(i.loc)).length:0;
+  h+=`<div class="chips hscroll" data-f="fCat"><button class="chip" type="button" data-v="" aria-pressed="${!S.fCat}">全部</button>${usedCats.map(c=>`<button class="chip" type="button" data-v="${esc(c)}" aria-pressed="${S.fCat===c}">${catIcon(c)}${esc(c)}</button>`).join("")}</div>
+   <div class="seg useg" role="group" aria-label="开封还是存货">${segs.map(([k,n,c])=>`<button type="button" data-act="fstate" data-v="${k}" aria-pressed="${S.fState===k}">${n} ${c}</button>`).join("")}</div>
+   ${LOC?`<select id="fLoc"><option value="">所有位置</option><option value="_none" ${S.fLoc==="_none"?"selected":""}>待整理</option>${usedLocs.map(l=>`<option value="${esc(l.id)}" ${S.fLoc===l.id?"selected":""}>${esc(l.name)}</option>`).join("")}</select>`:""}
+   ${pending?`<div class="notice">还有 ${pending} ${K.unit}没记位置，去「整理」把它们放进收纳。</div>`:""}
+   ${list.length?`<div class="stack" style="gap:10px">${list.map(uniCardHTML).join("")}</div>`:`<div class="empty">这里没有符合的东西</div>`}`;
+  return h+`</div>`}
+function findHTML(){return `<div class="stack"><div class="row" style="flex-wrap:nowrap;gap:6px"><button class="btn" type="button" data-act="find-back" aria-label="返回首页">‹ 返回</button>
+  <input class="search big" id="fq" type="search" placeholder="比如：辣椒、酱油、鸡蛋" value="${esc(S.fq||"")}" autocomplete="off" style="flex:1;min-width:0"></div>
+  <div class="stack" id="find-body">${findBody()}</div></div>`}
+function findBody(){const q=(S.fq||"").trim();if(!q)return `<div class="sub">买东西之前输进来看看，家里有没有、还剩多少。</div>`;
+  const ql=q.toLowerCase(),hits=activeItems().filter(i=>[i.brand,i.note,i.shade].join(" ").toLowerCase().includes(ql));
+  if(!hits.length)return `<div class="empty">家里没有名字里带「${esc(q)}」的东西。</div>`;
+  const o=hits.filter(i=>openN(i)>0).length,st=hits.reduce((a,i)=>a+stockN(i),0);
+  return `<div class="find-sum"><div class="sub">名字里有「${esc(q)}」的</div><div><span class="big">${hits.length}</span> 样</div>
+    <div class="row"><span class="lbl open">开封 ${o} 样</span><span class="lbl stock">存货 ${st} 个</span></div></div>
+   ${hits.map(i=>`<button class="ucard urow" type="button" data-item="${esc(i.id)}"><span class="uph">${i.thumb?`<img src="${i.thumb}" alt="" loading="lazy">`:catIcon(i.cat,"xl")}</span>
+     <span class="grow"><b>${hl(itemTitle(i),q)}</b><span class="sub">${esc(LOC?locName(i.loc):i.cat)}</span></span><span class="lbl ${openN(i)?"open":"stock"}">${esc(countText(i))}</span></button>`).join("")}`}
 function homeHTML(){const p=homeParts();return `<div class="stack">${p.top}<div class="stack" id="home-body">${p.body}</div></div>`}
 // 搜索框打字时只换下面的结果，输入框本身不重画：拼音输入法的候选框才不会被打断
 function updateHomeBody(){const b=$("#home-body");if(!b){render();return}b.innerHTML=homeParts().body}
@@ -583,10 +657,12 @@ function sortHTML(){
 }
 function statsHTML(){
   const items=activeItems();
-  const byCat=CATS.map(([c])=>{const its=items.filter(i=>i.cat===c);const o=its.filter(isOpen).length;return {c,o,n:its.reduce((s,i)=>s+qtyOf(i),0)-o}}).filter(x=>x.o+x.n);
+  const byCat=CATS.map(([c])=>{const its=items.filter(i=>i.cat===c);
+    if(UNI)return {c,o:its.reduce((s,i)=>s+openN(i),0),n:its.reduce((s,i)=>s+stockN(i),0)};
+    const o=its.filter(isOpen).length;return {c,o,n:its.reduce((s,i)=>s+qtyOf(i),0)-o}}).filter(x=>x.o+x.n);
   const maxN=Math.max(1,...byCat.map(x=>x.o+x.n));
   return `<section class="panel"><h2>每一类有多少</h2>
-    ${byCat.length?`<div class="sub">深色是在用的，浅色是囤货</div><div class="stack" style="gap:6px">${byCat.map(x=>`<div class="bar-row"><span>${esc(x.c)}</span><span class="bar"><i style="width:${x.o/maxN*100}%"></i><i class="n" style="width:${x.n/maxN*100}%"></i></span><span>用${x.o} 囤${x.n}</span></div>`).join("")}</div>`
+    ${byCat.length?`<div class="sub">${UNI?"深色是开封的，浅色是存货":"深色是在用的，浅色是囤货"}</div><div class="stack" style="gap:6px">${byCat.map(x=>`<div class="bar-row"><span>${esc(x.c)}</span><span class="bar"><i style="width:${x.o/maxN*100}%"></i><i class="n" style="width:${x.n/maxN*100}%"></i></span><span>${UNI?`开${x.o} 存${x.n}`:`用${x.o} 囤${x.n}`}</span></div>`).join("")}</div>`
      :`<div class="empty">录入之后，这里会按类别统计。</div>`}
   </section>`;
 }
@@ -648,7 +724,7 @@ async function searchCity(q){const box=$("#city-res");if(!q||!box)return;box.inn
 // 家里有什么：拍照录的「调料」「食品」＋ 厨房和冰箱里的存货（数量不为 0）＋ 厨房和冰箱清单里写的每一样
 function pantry(){
   const out=[],kitchen=l=>!!l&&(["kitchen","fridge"].includes(l.spot)||/厨房|冰箱|食/.test(l.name||""));
-  activeItems().forEach(i=>out.push({id:i.id,cat:i.cat,name:[i.brand,i.note,i.shade].filter(Boolean).join(" ")||i.cat,src:"录的",days:daysLeft(i)}));
+  activeItems().filter(i=>!UNI||openN(i)+stockN(i)>0).forEach(i=>out.push({id:i.id,cat:i.cat,name:[i.brand,i.note,i.shade].filter(Boolean).join(" ")||i.cat,src:"录的",days:daysLeft(i)}));
   S.stock.filter(x=>kitchen(locById(x.loc))&&((+x.qty||0)>0||(+x.subQty||0)>0)).forEach(x=>out.push({name:x.name,src:"存货",days:null}));
   S.locs.filter(kitchen).forEach(l=>(l.contents||"").split(/[\n、，,;；]+/).map(x=>x.trim()).filter(Boolean).forEach(x=>out.push({name:x,src:"清单",days:null})));
   return out}
@@ -748,6 +824,9 @@ async function saveMeal(btn){
     else{body.used=[...d.used].map(([iid,v])=>({id:iid,done:v==="done"}));body.by=(S.user?.email||"").toLowerCase();body.created=Date.now();
       id=(await col("meals").add(body)).id;
       for(const [iid,v] of d.used){const i=byId(iid);if(!i)continue;
+        if(UNI){if(v==="done")await ref("items",iid).update(finishPatch(i));
+          else if(!openN(i)&&stockN(i))await ref("items",iid).update({openN:1,stockN:stockN(i)-1,state:"open",qty:Math.max(1,stockN(i)-1),opened:Date.now(),left:meterOf(i).max,lastUsed:Date.now(),usedCount:(i.usedCount||0)+1});
+          else await ref("items",iid).update({lastUsed:Date.now(),usedCount:(i.usedCount||0)+1});continue}
         if(v==="done"){if(qtyOf(i)>1)await ref("items",iid).update({qty:qtyOf(i)-1});else await ref("items",iid).update({status:"gone",goneAt:Date.now()})}
         else if(!isOpen(i))await openOne(iid);
         else await ref("items",iid).update({lastUsed:Date.now(),usedCount:(i.usedCount||0)+1})}}
@@ -801,8 +880,8 @@ function simHTML(){const d=draft;if(!d||d.id||d._simOk||!d._sim||!d._sim.length)
 // pre：从某个位置里点「录入」时带进来的 {loc, as}，位置先选好
 function openForm(item,pre){
   const st=pre?{...S.sticky,...pre}:S.sticky;
-  draft=item?{...item,state:isOpen(item)?"open":"new",colors:[...(item.colors||[])],_file:null,_preview:item.thumb||""}
-    :{as:HOUSE?st.as||"item":"item",sName:"",sQty:1,sUnit:"个",sSub:"",sSubUnit:"",cat:st.cat,state:st.state,colors:[],loc:st.loc,note:"",shade:"",qty:1,opened:0,pao:paoFor(st.cat),exp:"",_file:null,_preview:""};
+  draft=item?{...item,state:isOpen(item)?"open":"new",openN:openN(item),stockN:stockN(item),weight:item.weight||1000,mUnit:item.mUnit||"",mMax:item.mMax||"",mStep:item.mStep||"",colors:[...(item.colors||[])],_file:null,_preview:item.thumb||""}
+    :{openN:st.state==="new"?0:1,stockN:st.state==="new"?1:0,weight:1000,mUnit:"",mMax:"",mStep:"",as:HOUSE?st.as||"item":"item",sName:"",sQty:1,sUnit:"个",sSub:"",sSubUnit:"",cat:st.cat,state:st.state,colors:[],loc:st.loc,note:"",shade:"",qty:1,opened:0,pao:paoFor(st.cat),exp:"",_file:null,_preview:""};
   renderForm();
 }
 // 把输入框里已经填的东西收回 draft，重画表单时才不会丢
@@ -814,6 +893,12 @@ function readForm(){const d=draft,v=id=>{const el=document.getElementById(id);re
   if((x=v("fm-qty"))!=null)d.qty=Math.max(1,parseInt(x,10)||1);
   if((x=v("fm-opened"))!=null)d.opened=x?fromYmd(x):0;
   if((x=v("fm-exp"))!=null)d.exp=x;
+  if((x=v("fm-open"))!=null)d.openN=Math.max(0,parseInt(x,10)||0);
+  if((x=v("fm-stock"))!=null)d.stockN=Math.max(0,parseInt(x,10)||0);
+  if((x=v("fm-weight"))!=null)d.weight=Math.max(0,parseInt(x,10)||0);
+  if((x=v("fm-munit"))!=null)d.mUnit=x;
+  if((x=v("fm-mmax"))!=null)d.mMax=x;
+  if((x=v("fm-mstep"))!=null)d.mStep=x;
   if((x=v("fm-sname"))!=null)d.sName=x;
   if((x=v("fm-sqty"))!=null)d.sQty=Math.max(0,parseInt(x,10)||0);
   if((x=v("fm-sunit"))!=null)d.sUnit=x;
@@ -830,9 +915,9 @@ function renderForm(keep){
    <button class="photo-pick" type="button" data-act="pick">${d._preview?`<img src="${d._preview}" alt=""><span class="chg">点击更换照片</span>`:`<span>点这里拍照或选照片<br><span class="sub">${esc(K.photoHint)}</span></span>`}</button>
    ${asStock?stockFieldsHTML(d):`<div id="sim-zone">${simHTML()}</div>
    <div class="f">类别 *${K.cats.map(g=>`<span>${esc(g.g)}</span><div class="cats" data-fm="cat">${g.items.map(([c])=>`<button class="chip cat" type="button" data-v="${esc(c)}" aria-pressed="${d.cat===c}">${catIcon(c)}${esc(c)}</button>`).join("")}</div>`).join("")}</div>
-   <div class="f">现在是<div class="seg" data-fm="state">${Object.entries(STATES).map(([k,n])=>`<button type="button" data-v="${k}" aria-pressed="${d.state===k}">${n}${k==="new"?"（囤货）":""}</button>`).join("")}</div></div>
-   ${open?"":`<label class="f">一样的有几${K.unit}<input type="number" id="fm-qty" value="${esc(d.qty||1)}" min="1" inputmode="numeric"></label>`}
-   ${K.expiry?`${open?`<label class="f">哪天开封的<input type="date" id="fm-opened" value="${ymd(d.opened||Date.now())}"></label>`:""}
+   ${UNI?uniQtyHTML(d):`<div class="f">现在是<div class="seg" data-fm="state">${Object.entries(STATES).map(([k,n])=>`<button type="button" data-v="${k}" aria-pressed="${d.state===k}">${n}${k==="new"?"（囤货）":""}</button>`).join("")}</div></div>
+   ${open?"":`<label class="f">一样的有几${K.unit}<input type="number" id="fm-qty" value="${esc(d.qty||1)}" min="1" inputmode="numeric"></label>`}`}
+   ${K.expiry?`${open&&!UNI?`<label class="f">哪天开封的<input type="date" id="fm-opened" value="${ymd(d.opened||Date.now())}"></label>`:""}
     ${K.paoOpts.length?`<div class="f">开封后能用多久（瓶身上那个小罐子图标）<div class="chips" data-fm="pao">${K.paoOpts.map(m=>chip(m,m+" 个月",+d.pao===m)).join("")}${chip(0,"不算",!+d.pao)}</div></div>`:""}
     <label class="f">${esc(K.expLabel||"包装上印的期限")}（可不填）<input type="date" id="fm-exp" value="${esc(d.exp||"")}"></label>`:""}
    ${K.brand?`<div class="f">品牌（可不填，点下面的直接填入）<input type="text" id="fm-brand" placeholder="${esc(K.brandPh||"")}" value="${esc(d.brand||"")}" autocomplete="off">${brandChips(d.brand)}</div>`:""}
@@ -880,6 +965,15 @@ async function saveAsStock(next){
   }catch(e){msg.textContent="没保存成功："+(e&&e.message?e.message:"请稍后再试");
     document.querySelectorAll('[data-act="save"],[data-act="save-next"]').forEach(b=>b.disabled=false)}
 }
+// 厨房的数量：开封几个、存货几个（肉类只有开封几个和总重量）；剩余量怎么算收在下面，平时不用管
+function uniQtyHTML(d){const meat=isMeat(d);
+  return `<div class="row" style="flex-wrap:nowrap"><label class="f" style="flex:1;min-width:0">开封几个<input type="number" id="fm-open" value="${esc(d.openN)}" min="0" inputmode="numeric"></label>
+   ${meat?`<label class="f" style="flex:1;min-width:0">总重量（g）<input type="number" id="fm-weight" value="${esc(d.weight||1000)}" min="50" step="50" inputmode="numeric"></label>`
+     :`<label class="f" style="flex:1;min-width:0">存货几个<input type="number" id="fm-stock" value="${esc(d.stockN)}" min="0" inputmode="numeric"></label>`}</div>
+   ${meat?`<div class="sub">肉类都算开封，剩余量按克算，每档 50g。</div>`:`<details class="f"><summary>剩余量怎么算（现在：${esc((d.mUnit||"%")==="g"?"按克":"按百分比")}）</summary>
+     <div class="row" style="flex-wrap:nowrap;margin-top:6px"><label class="f" style="flex:1;min-width:0">单位<select id="fm-munit"><option value="%" ${(d.mUnit||"%")==="%"?"selected":""}>%</option><option value="g" ${d.mUnit==="g"?"selected":""}>g</option></select></label>
+     <label class="f" style="flex:1;min-width:0">满的时候<input type="number" id="fm-mmax" value="${esc(d.mMax)}" placeholder="${(d.mUnit||"%")==="g"?"比如 500":"100"}" inputmode="numeric"></label>
+     <label class="f" style="flex:1;min-width:0">每档<input type="number" id="fm-mstep" value="${esc(d.mStep)}" placeholder="${(d.mUnit||"%")==="g"?"50":"10"}" inputmode="numeric"></label></div></details>`}`}
 async function toJpeg(file,max,qs){
   const url=URL.createObjectURL(file);
   try{const img=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=url});
@@ -903,11 +997,17 @@ async function saveDraft(next){
     const body={cat:d.cat,state:d.state,note:d.note,brand:normBrand(d.brand),shade:d.shade,colors:d.colors,loc:d.loc,qty:open?1:d.qty,opened:open?(d.opened||Date.now()):0,
       thumb,status:"active",hasPhoto:!!(full||d.hasPhoto)};
     if(K.expiry){body.pao=+d.pao||0;body.exp=d.exp||""}
+    if(UNI){const meat=isMeat(d),o=meat?d.openN+(+d.stockN||0):d.openN,st=meat?0:d.stockN;   // 肉类没有存货：填过的存货并进开封
+      Object.assign(body,{openN:o,stockN:st,state:o>0?"open":"new",qty:Math.max(1,st),opened:o>0?(d.opened||Date.now()):0});
+      if(meat)Object.assign(body,{weight:+d.weight||1000,mUnit:"g",mMax:0,mStep:50});
+      else Object.assign(body,{mUnit:d.mUnit==="g"?"g":"",mMax:+d.mMax||0,mStep:+d.mStep||0});
+      const prev=d.id&&byId(d.id),max=meterOf({...prev,...body}).max;
+      body.left=prev&&openN(prev)>0?Math.min(meterOf(prev).left,max):max}
     let id=d.id;
     if(id){await ref("items",id).update(body)}
     else{body.created=Date.now();body.lastUsed=0;body.usedCount=0;body.reviews={};const r=col("items").doc();id=r.id;await r.set(body)}
     if(full){await ref("photos",id).set({data:full});S.photoCache[id]=full}
-    S.sticky={cat:d.cat,state:d.state,loc:d.loc,as:"item"};
+    S.sticky={cat:d.cat,state:UNI?(d.openN>0?"open":"new"):d.state,loc:d.loc,as:"item"};
     if(next){toast("已保存，接着拍下一"+K.unit);openForm(null)}else{closeSheet();toast("已保存")}
   }catch(e){msg.textContent="没保存成功："+(e&&e.message?e.message:"请稍后再试");
     document.querySelectorAll('[data-act="save"],[data-act="save-next"]').forEach(b=>b.disabled=false)}
@@ -930,14 +1030,14 @@ function openItem(id){
    ${i.brand?`<dt>品牌</dt><dd>${esc(i.brand)}</dd>`:""}
    ${i.shade?`<dt>${esc(K.shadeLabel)}</dt><dd>${esc(i.shade)}</dd>`:""}
    ${(i.colors||[]).length?`<dt>颜色</dt><dd>${esc(i.colors.join("、"))}</dd>`:""}
-   <dt>状态</dt><dd>${gone?"用完于 "+esc(dateText(i.goneAt||0)):open?"在用"+(i.opened?"，"+esc(dateText(i.opened))+" 开封":""):"没开封，囤着 "+qtyOf(i)+" "+K.unit}</dd>
+   <dt>${UNI?"数量":"状态"}</dt><dd>${gone?"用完于 "+esc(dateText(i.goneAt||0)):UNI?esc(countText(i))+(openN(i)?` · 剩余 ${meterOf(i).left}${meterOf(i).unit}`:""):open?"在用"+(i.opened?"，"+esc(dateText(i.opened))+" 开封":""):"没开封，囤着 "+qtyOf(i)+" "+K.unit}</dd>
    ${n!=null?`<dt>到期</dt><dd class="${n<0?"late":n<=30?"soon":""}">${esc(dateText(dueOf(i)))}（${dueText(n)}）</dd>`:""}
    ${gone||!LOC?"":`<dt>在哪</dt><dd>${l?.code?`<span class="code">${esc(l.code)}</span> `:""}${esc(locName(i.loc))}</dd>`}
    ${open&&!gone?`<dt>上次用</dt><dd>${i.lastUsed?esc(dateText(i.lastUsed)):"还没记录"}${i.usedCount?`（共记录 ${i.usedCount} 次）`:""}</dd>`:""}
    ${rv?`<dt>盘点</dt><dd>${esc(rv)}</dd>`:""}</dl>
    ${S.ro?"":gone?`<div class="row"><button class="btn" type="button" data-act="unfinish" data-id="${esc(i.id)}">其实还没用完</button></div>
      <div class="row" id="del-zone"><button class="btn danger" type="button" data-act="del-ask" data-id="${esc(i.id)}">删除这条记录</button></div>`
-   :`<div class="row">${open?`<button class="btn primary" type="button" data-act="used" data-id="${esc(i.id)}">今天用了</button><button class="btn" type="button" data-act="finish" data-id="${esc(i.id)}">用完了</button>`
+   :`<div class="row">${UNI?`${openN(i)?`<button class="btn primary" type="button" data-act="used" data-id="${esc(i.id)}">今天用了</button>`:""}<button class="btn" type="button" data-act="finish" data-id="${esc(i.id)}">用完了</button>`:open?`<button class="btn primary" type="button" data-act="used" data-id="${esc(i.id)}">今天用了</button><button class="btn" type="button" data-act="finish" data-id="${esc(i.id)}">用完了</button>`
       :`<button class="btn primary" type="button" data-act="open-one" data-id="${esc(i.id)}">开封${qtyOf(i)>1?"一"+K.unit:""}</button>`}
      <button class="btn" type="button" data-act="chg-photo" data-id="${esc(i.id)}">${i.thumb?"换照片":"加照片"}</button><button class="btn" type="button" data-act="edit" data-id="${esc(i.id)}">${LOC?"编辑 / 换位置":"编辑"}</button>
      ${flag?`<button class="btn" type="button" data-act="keep" data-id="${esc(i.id)}">决定留着</button>`:""}</div>
@@ -1007,6 +1107,9 @@ document.addEventListener("click",async e=>{
   else if(a==="city-pick"){const r=(S.cityRes||[])[+t.dataset.k];if(r)setWxPlace({name:r.name,lat:+r.latitude.toFixed(2),lon:+r.longitude.toFixed(2)});renderKeep()}
   else if(a==="wx-change"){try{localStorage.removeItem("wxPlace")}catch(_){}S.wx=null;renderKeep()}
   else if(a==="wx-retry")loadWeather(true);
+  else if(a==="find"){S.tab="find";render();window.scrollTo(0,0);const q=$("#fq");if(q)q.focus()}
+  else if(a==="find-back"){S.tab="home";render();window.scrollTo(0,0)}
+  else if(a==="fstate"){S.fState=t.dataset.v;renderKeep()}
   else if(a==="food-more"){S.foodPage=(S.foodPage||0)+1;renderKeep()}
   else if(a==="cook"){const x=scoreRecipes(pantry(),S.wx).find(y=>y.r.n===t.dataset.n);
     const ids=x?[...new Set([...x.need,...x.sea,...x.opt].flatMap(y=>y.hit).map(h=>h.id).filter(Boolean))]:[];
@@ -1028,7 +1131,12 @@ document.addEventListener("click",async e=>{
   else if(a==="chg-photo"){S.chgPhotoId=t.dataset.id;const f=$("#file-chg");if(f)f.click()}
   else if(a==="used"){const i=byId(t.dataset.id);try{await ref("items",i.id).update({lastUsed:Date.now(),usedCount:(i.usedCount||0)+1});closeSheet();toast("记下了")}catch(_){toast("没保存成功")}}
   else if(a==="open-one"){t.disabled=true;try{await openOne(t.dataset.id);closeSheet();toast("已开封，放进「正在用」")}catch(_){t.disabled=false;toast("没保存成功")}}
+  else if(a==="finish"&&UNI){const i=byId(t.dataset.id);if(!i)return;const up=finishPatch(i);
+    try{await ref("items",i.id).update(up);closeSheet();toast(up.status==="gone"?"全部用完了 ✓":`用完一个，还有 ${countText({...i,...up})}`)}catch(_){toast("没保存成功")}}
   else if(a==="finish"){try{await ref("items",t.dataset.id).update({status:"gone",goneAt:Date.now()});closeSheet();toast("用完一"+K.unit+" ✓")}catch(_){toast("没保存成功")}}
+  else if(a==="unfinish"&&UNI){const i=byId(t.dataset.id);if(!i)return;const up={status:"active"};
+    if(openN(i)+stockN(i)===0)Object.assign(up,{openN:1,stockN:0,state:"open",left:meterOf(i).max});
+    try{await ref("items",i.id).update(up);closeSheet();toast("放回来了")}catch(_){toast("没保存成功")}}
   else if(a==="unfinish"){try{await ref("items",t.dataset.id).update({status:"active"});closeSheet();toast("放回「正在用」")}catch(_){toast("没保存成功")}}
   else if(a==="keep"){try{await ref("items",t.dataset.id).update({kept:true});closeSheet();toast("好的，留着")}catch(_){toast("没保存成功")}}
   else if(a==="del-ask"){$("#del-zone").innerHTML=`<span class="sub">确定删除吗？照片也会一起删掉。用完了的话点「用完了」就好，不用删。</span><button class="btn danger" type="button" data-act="del" data-id="${esc(t.dataset.id)}">确定删除</button><button class="btn" type="button" data-act="close">取消</button>`}
@@ -1082,6 +1190,7 @@ document.addEventListener("click",async e=>{
 });
 document.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.dataset&&e.target.dataset.spot){e.preventDefault();openSpot(e.target.dataset.spot)}});
 document.addEventListener("change",e=>{
+  if(e.target.dataset&&e.target.dataset.left&&!S.ro){const id=e.target.dataset.left,v=+e.target.value;ref("items",id).update({left:v}).catch(()=>toast("没保存成功"))}
   if(e.target.id==="ml-file"&&e.target.files[0]&&S.mealDraft){const d=S.mealDraft;d._file=e.target.files[0];d._preview=URL.createObjectURL(d._file);const b=$("#ml-pick");if(b)b.innerHTML=`<img src="${d._preview}" alt=""><span class="chg">点击更换照片</span>`}
   if(e.target.id==="st-file"&&e.target.files[0]){S.stFile=e.target.files[0];const b=$("#st-pick");if(b)b.innerHTML=`<img src="${URL.createObjectURL(S.stFile)}" alt=""><span class="chg">点击更换照片</span>`}
   if(e.target.id==="file"&&e.target.files[0]){readForm();const f=e.target.files[0];draft._file=f;draft._preview=URL.createObjectURL(f);renderForm(true);simCheck()}
@@ -1090,11 +1199,15 @@ document.addEventListener("change",e=>{
   if(e.target.id==="sortTarget"){S.sortTarget=e.target.value;e.target.blur();renderKeep()}
 });
 document.addEventListener("keydown",e=>{if(e.target.id==="city-q"&&e.key==="Enter"&&!e.isComposing){e.preventDefault();searchCity(e.target.value.trim())}});
-document.addEventListener("compositionstart",e=>{if(e.target.id==="gq")S.composing=true});
-document.addEventListener("compositionend",e=>{if(e.target.id==="gq"){S.composing=false;S.gq=e.target.value;clearTimeout(S.qt);updateHomeBody()}});
+document.addEventListener("compositionstart",e=>{if(e.target.id==="gq"||e.target.id==="fq")S.composing=true});
+document.addEventListener("compositionend",e=>{if(e.target.id==="gq"){S.composing=false;S.gq=e.target.value;clearTimeout(S.qt);updateHomeBody()}
+  if(e.target.id==="fq"){S.composing=false;S.fq=e.target.value;const b=$("#find-body");if(b)b.innerHTML=findBody()}});
 document.addEventListener("input",e=>{
   // 拼音还没选字（composing）时不搜，选完字由 compositionend 搜一次
   if(e.target.id==="gq"){S.gq=e.target.value;if(S.composing||e.isComposing)return;clearTimeout(S.qt);S.qt=setTimeout(updateHomeBody,200)}
+  if(e.target.id==="fq"){S.fq=e.target.value;if(S.composing||e.isComposing)return;clearTimeout(S.qt);S.qt=setTimeout(()=>{const b=$("#find-body");if(b)b.innerHTML=findBody()},200)}
+  // 拖滑动条时只改旁边的数字，松手（change）才保存
+  if(e.target.dataset&&e.target.dataset.left){const lv=document.getElementById("lv-"+e.target.dataset.left);if(lv)lv.textContent=e.target.value+e.target.dataset.unit}
 });
 
 /* ---------- login ---------- */
